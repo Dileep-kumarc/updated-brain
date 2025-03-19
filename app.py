@@ -12,20 +12,15 @@ import requests
 # Step 1: Define model downloading and loading functions
 def download_file(url, filename):
     try:
-        # Check if URL is a valid Google Drive link
         if '/d/' not in url:
             st.error(f"Invalid Google Drive URL: {url}. Please provide a valid sharing link.")
             raise ValueError("URL must contain '/d/' (Google Drive sharing link format)")
         
-        # Extract file ID
         file_id = url.split('/d/')[1].split('/')[0]
         base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        
-        # Use a session for persistent cookies
         session = requests.Session()
         response = session.get(base_url, stream=True)
         
-        # Handle large file confirmation token
         token = None
         for key, value in response.cookies.items():
             if key.startswith('download_warning'):
@@ -36,7 +31,6 @@ def download_file(url, filename):
             download_url = f"{base_url}&confirm={token}"
             response = session.get(download_url, stream=True)
         
-        # Verify the response
         response.raise_for_status()
         
         # Download with progress bar
@@ -53,9 +47,17 @@ def download_file(url, filename):
                         progress_bar.progress(min(downloaded / total_size, 1.0))
         
         progress_bar.empty()
+        
+        # Verify file content
+        with open(filename, 'rb') as f:
+            header = f.read(4)
+            if header.startswith(b'<'):
+                st.error(f"Downloaded file {filename} appears to be an HTML page, not a model file. Check the Google Drive link.")
+                raise ValueError("Invalid file content: HTML detected")
+        
         st.success(f"Downloaded {filename} successfully!")
     except IndexError:
-        st.error(f"Could not extract file ID from URL: {url}. Ensure it’s a valid Google Drive link (e.g., https://drive.google.com/file/d/FILE_ID/view).")
+        st.error(f"Could not extract file ID from URL: {url}. Ensure it’s a valid Google Drive link.")
         raise
     except requests.RequestException as e:
         st.error(f"Download failed for {filename}: {str(e)}")
@@ -63,7 +65,6 @@ def download_file(url, filename):
     except Exception as e:
         st.error(f"An unexpected error occurred while downloading {filename}: {str(e)}")
         raise
-
 @st.cache_resource
 def load_models():
     # Load Custom CNN for MRI Validation
