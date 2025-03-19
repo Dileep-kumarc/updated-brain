@@ -6,40 +6,43 @@ import numpy as np
 import streamlit as st
 from torchvision import transforms
 from PIL import Image
-import matplotlib.pyplot as plt
 import gdown
 
-# Download models at startup
-def download_file(url, filename):
+# -----------------------------
+# 🔽 DOWNLOAD MODEL FILES
+# -----------------------------
+def download_file(url, filename, expected_size_mb):
     if not os.path.exists(filename):
-        st.info(f"Downloading {filename} from {url}...")
+        st.info(f"Downloading {filename} from Google Drive...")
         try:
             gdown.download(url, filename, quiet=False)
-            # Check file size and content
-            file_size = os.path.getsize(filename)
-            st.write(f"Downloaded {filename} with size: {file_size / (1024 * 1024):.2f} MB")
             
-            # Expected sizes (approx): 205 MB for .pth, 134 MB for .h5
-            if file_size < 1024 * 1024:  # Less than 1 MB is suspicious
-                st.error(f"Downloaded {filename} is too small ({file_size} bytes). Expected a large model file (~205 MB for .pth, ~134 MB for .h5).")
-                raise ValueError("File too small")
+            # Verify download
+            file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
+            if file_size < expected_size_mb * 0.8:  # Less than 80% of expected size is suspicious
+                st.error(f"Downloaded {filename} is too small ({file_size:.2f} MB). Check the link.")
+                raise ValueError("File size mismatch")
             
-            # Check if it’s an HTML page
+            # Check if it’s an HTML page (failed download)
             with open(filename, 'rb') as f:
                 header = f.read(10)
                 if header.startswith(b'<!DOCTYPE') or header.startswith(b'<html'):
-                    st.error(f"Downloaded {filename} appears to be an HTML page: {header}. Check the Google Drive link.")
-                    raise ValueError("Invalid file content: HTML detected")
+                    st.error(f"Downloaded {filename} is an HTML page. Check the Google Drive link.")
+                    raise ValueError("Invalid file content")
             
-            st.success(f"Downloaded {filename} successfully!")
+            st.success(f"Successfully downloaded {filename} ({file_size:.2f} MB)")
+
         except Exception as e:
             st.error(f"Failed to download {filename}: {str(e)}")
             raise
 
-# Download models at app startup
-download_file("https://drive.google.com/file/d/1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv/view?usp=sharing", "best_mri_classifier.pth")
-download_file("https://drive.google.com/file/d/1jey7rlkoK4qgIpBFiXG9RtwwzLjEYnTp/view?usp=sharing", "brain_tumor_classifier.h5")
+# 📥 Download model files at startup
+download_file("https://drive.google.com/uc?id=1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv", "best_mri_classifier.pth", 205)
+download_file("https://drive.google.com/uc?id=1jey7rlkoK4qgIpBFiXG9RtwwzLjEYnTp", "brain_tumor_classifier.h5", 134)
 
+# -----------------------------
+# 🧠 LOAD MODELS
+# -----------------------------
 @st.cache_resource
 def load_models():
     def load_custom_model():
@@ -64,7 +67,8 @@ def load_models():
 
         model = CustomCNN()
         try:
-            state_dict = torch.load("best_mri_classifier.pth", map_location=torch.device('cpu'))
+            # ✅ Fixed for PyTorch 2.6+
+            state_dict = torch.load("best_mri_classifier.pth", map_location=torch.device('cpu'), weights_only=False)
             model.load_state_dict(state_dict)
         except Exception as e:
             st.error(f"Failed to load best_mri_classifier.pth: {str(e)}")
@@ -72,6 +76,7 @@ def load_models():
         model.eval()
         return model
 
+    # Load both models
     custom_cnn_model = load_custom_model()
     try:
         classifier_model = tf.keras.models.load_model("brain_tumor_classifier.h5")
@@ -80,7 +85,12 @@ def load_models():
         raise
     return custom_cnn_model, classifier_model
 
-# Image preprocessing
+# Load models once
+custom_cnn_model, classifier_model = load_models()
+
+# -----------------------------
+# 📷 IMAGE PROCESSING
+# -----------------------------
 def preprocess_image(image, target_size=(224, 224)):
     image = image.resize(target_size)
     image_array = np.array(image) / 255.0
@@ -88,7 +98,7 @@ def preprocess_image(image, target_size=(224, 224)):
         image_array = np.stack([image_array] * 3, axis=-1)
     return image_array
 
-# MRI Validation
+# 🔍 MRI Validation
 def validate_mri(image, model):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -100,7 +110,7 @@ def validate_mri(image, model):
     pred = torch.argmax(output, dim=1).item()
     return ("MRI", True) if pred == 0 else ("Non-MRI", False)
 
-# Tumor Classification
+# 🏥 Tumor Classification
 def classify_tumor(image, model):
     image_array = preprocess_image(image)
     image_array = np.expand_dims(image_array, axis=0)
@@ -108,76 +118,56 @@ def classify_tumor(image, model):
     classes = ['Glioma', 'Meningioma', 'No Tumor', 'Pituitary']
     return classes[np.argmax(predictions)], np.max(predictions)
 
-# Streamlit interface
+# -----------------------------
+# 🎨 STREAMLIT UI
+st.markdown("""
+    <style>
+        body {
+            background-color: #f7f7f7;
+        }
+        .title {
+            font-size: 2.5rem;
+            color: #2c3e50;
+            text-align: center;
+        }
+        .result-container {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            color: #34495e;
+            font-weight: bold;
+        }
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .upload-container {
+            background-color: #f9f9f9;
+            border: 1px dashed #ccc;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+    </style>
+""", unsafe_allow_html=True)
+# -----------------------------
 st.set_page_config(
     page_title="Brain Tumor Detection",
     page_icon="🧠",
     layout="wide",
 )
 
-st.markdown("""
-<style>
-    body {
-        font-family: 'Arial', sans-serif;
-        background-color: #f7f7f7;
-    }
-    .title {
-        font-size: 2.5rem;
-        color: #2c3e50;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .result-container {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
-    .header {
-        color: #34495e;
-        font-weight: bold;
-    }
-    .sidebar .sidebar-content {
-        background-color: #ecf0f1;
-        padding: 20px;
-        border-radius: 8px;
-    }
-    .btn {
-        background-color: #007bff;
-        color: white;
-        padding: 10px 20px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        text-align: center;
-    }
-    .btn:hover {
-        background-color: #0056b3;
-    }
-    .input-area {
-        padding: 10px;
-        border: 1px solid #ccc;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    .navigation {
-        margin-bottom: 1.5rem;
-    }
-    .upload-container {
-        background-color: #f9f9f9;
-        border: 1px dashed #ccc;
-        padding: 20px;
-        border-radius: 8px;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("🧠 Brain Tumor Detection")
-
-uploaded_file = st.sidebar.file_uploader("Upload MRI Image", type=["jpg", "jpeg", "png"])
-custom_cnn_model, classifier_model = load_models()
+st.sidebar.header("Upload MRI Image")
+uploaded_file = st.sidebar.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
@@ -186,15 +176,16 @@ if uploaded_file:
     st.header("Step 1: MRI Validation")
     image_type, is_mri = validate_mri(image, custom_cnn_model)
     if not is_mri:
-        st.error(f"Detected image type: {image_type}. Please upload a valid MRI image.")
+        st.error(f"❌ Detected: {image_type}. Please upload a valid MRI image.")
     else:
-        st.success("Image validated as MRI. Proceeding to classification...")
+        st.success("✅ Image validated as MRI. Proceeding to classification...")
 
         st.header("Step 2: Tumor Classification")
         tumor_type, confidence = classify_tumor(image, classifier_model)
-        st.write(f"**Tumor Type Detected:** {tumor_type} (Confidence: {confidence:.2f})")
+        st.write(f"**Tumor Type:** `{tumor_type}` (Confidence: `{confidence:.2f}`)")
 
         if tumor_type == "No Tumor":
-            st.info("No tumor detected in the image.")
+            st.info("✅ No tumor detected.")
         else:
-            st.warning("Tumor detected in the image!")
+            st.warning("⚠ Tumor detected. Consult a specialist!")
+
