@@ -7,38 +7,23 @@ import streamlit as st
 from torchvision import transforms
 from PIL import Image
 import matplotlib.pyplot as plt
-import requests
+import gdown
 
 # Download models at startup
 def download_file(url, filename):
     if not os.path.exists(filename):
         st.info(f"Downloading {filename}...")
-        file_id = url.split('/d/')[1].split('/')[0]
-        base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        session = requests.Session()
-        response = session.get(base_url, stream=True, allow_redirects=True)
-        
-        token = None
-        for key, value in response.cookies.items():
-            if key.startswith('download_warning'):
-                token = value
-                break
-        
-        if token:
-            download_url = f"{base_url}&confirm={token}"
-            response = session.get(download_url, stream=True, allow_redirects=True)
-        
-        response.raise_for_status()
-        with open(filename, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        
-        # Basic validation
-        with open(filename, 'rb') as f:
-            if f.read(4).startswith(b'<'):
-                st.error(f"Downloaded {filename} is an HTML page. Check the Google Drive link.")
-                raise ValueError("Invalid file content")
+        try:
+            gdown.download(url, filename, quiet=False)
+            # Verify file size to ensure it’s not an HTML page
+            file_size = os.path.getsize(filename)
+            if file_size < 1024:  # If file is too small (<1KB), it’s likely not the model
+                st.error(f"Downloaded {filename} is too small ({file_size} bytes). Expected a large model file. Check the Google Drive link.")
+                raise ValueError("Invalid file size")
+            st.success(f"Downloaded {filename} successfully!")
+        except Exception as e:
+            st.error(f"Failed to download {filename}: {str(e)}")
+            raise
 
 # Download models at app startup
 download_file("https://drive.google.com/file/d/1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv/view?usp=sharing", "best_mri_classifier.pth")
