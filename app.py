@@ -12,14 +12,25 @@ import gdown
 # Download models at startup
 def download_file(url, filename):
     if not os.path.exists(filename):
-        st.info(f"Downloading {filename}...")
+        st.info(f"Downloading {filename} from {url}...")
         try:
             gdown.download(url, filename, quiet=False)
-            # Verify file size to ensure it’s not an HTML page
+            # Check file size and content
             file_size = os.path.getsize(filename)
-            if file_size < 1024:  # If file is too small (<1KB), it’s likely not the model
-                st.error(f"Downloaded {filename} is too small ({file_size} bytes). Expected a large model file. Check the Google Drive link.")
-                raise ValueError("Invalid file size")
+            st.write(f"Downloaded {filename} with size: {file_size / (1024 * 1024):.2f} MB")
+            
+            # Expected sizes (approx): 205 MB for .pth, 134 MB for .h5
+            if file_size < 1024 * 1024:  # Less than 1 MB is suspicious
+                st.error(f"Downloaded {filename} is too small ({file_size} bytes). Expected a large model file (~205 MB for .pth, ~134 MB for .h5).")
+                raise ValueError("File too small")
+            
+            # Check if it’s an HTML page
+            with open(filename, 'rb') as f:
+                header = f.read(10)
+                if header.startswith(b'<!DOCTYPE') or header.startswith(b'<html'):
+                    st.error(f"Downloaded {filename} appears to be an HTML page: {header}. Check the Google Drive link.")
+                    raise ValueError("Invalid file content: HTML detected")
+            
             st.success(f"Downloaded {filename} successfully!")
         except Exception as e:
             st.error(f"Failed to download {filename}: {str(e)}")
@@ -52,12 +63,21 @@ def load_models():
                 return x
 
         model = CustomCNN()
-        model.load_state_dict(torch.load("best_mri_classifier.pth", map_location=torch.device('cpu')))
+        try:
+            state_dict = torch.load("best_mri_classifier.pth", map_location=torch.device('cpu'))
+            model.load_state_dict(state_dict)
+        except Exception as e:
+            st.error(f"Failed to load best_mri_classifier.pth: {str(e)}")
+            raise
         model.eval()
         return model
 
     custom_cnn_model = load_custom_model()
-    classifier_model = tf.keras.models.load_model("brain_tumor_classifier.h5")
+    try:
+        classifier_model = tf.keras.models.load_model("brain_tumor_classifier.h5")
+    except Exception as e:
+        st.error(f"Failed to load brain_tumor_classifier.h5: {str(e)}")
+        raise
     return custom_cnn_model, classifier_model
 
 # Image preprocessing
