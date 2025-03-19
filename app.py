@@ -19,16 +19,19 @@ def download_file(url, filename, expected_size_mb):
             
             # Verify download
             file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
-            if file_size < expected_size_mb * 0.8:  # Less than 80% of expected size is suspicious
-                st.error(f"Downloaded {filename} is too small ({file_size:.2f} MB). Check the link.")
+            st.write(f"Downloaded {filename} with size: {file_size:.2f} MB")
+            
+            # Check size (allow 20% variance due to compression differences)
+            if file_size < expected_size_mb * 0.8:
+                st.error(f"Downloaded {filename} is too small ({file_size:.2f} MB). Expected ~{expected_size_mb} MB.")
                 raise ValueError("File size mismatch")
             
-            # Check if it’s an HTML page (failed download)
+            # Check if it’s an HTML page
             with open(filename, 'rb') as f:
                 header = f.read(10)
-                if header.startswith(b'<!DOCTYPE') or header.startswith(b'<html'):
-                    st.error(f"Downloaded {filename} is an HTML page. Check the Google Drive link.")
-                    raise ValueError("Invalid file content")
+                if b'<' in header:  # Broad check for any HTML-like content
+                    st.error(f"Downloaded {filename} appears to be an HTML page. First 10 bytes: {header}. Check the Google Drive link.")
+                    raise ValueError("Invalid file content: HTML detected")
             
             st.success(f"Successfully downloaded {filename} ({file_size:.2f} MB)")
 
@@ -37,8 +40,8 @@ def download_file(url, filename, expected_size_mb):
             raise
 
 # 📥 Download model files at startup
-download_file("https://drive.google.com/uc?id=1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv", "best_mri_classifier.pth", 205)
-download_file("https://drive.google.com/uc?id=1jey7rlkoK4qgIpBFiXG9RtwwzLjEYnTp", "brain_tumor_classifier.h5", 134)
+download_file("https://drive.google.com/file/d/1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv/view?usp=sharing", "best_mri_classifier.pth", 205)
+download_file("https://drive.google.com/file/d/1jey7rlkoK4qgIpBFiXG9RtwwzLjEYnTp/view?usp=sharing", "brain_tumor_classifier.h5", 134)
 
 # -----------------------------
 # 🧠 LOAD MODELS
@@ -67,7 +70,6 @@ def load_models():
 
         model = CustomCNN()
         try:
-            # ✅ Fixed for PyTorch 2.6+
             state_dict = torch.load("best_mri_classifier.pth", map_location=torch.device('cpu'), weights_only=False)
             model.load_state_dict(state_dict)
         except Exception as e:
@@ -76,7 +78,6 @@ def load_models():
         model.eval()
         return model
 
-    # Load both models
     custom_cnn_model = load_custom_model()
     try:
         classifier_model = tf.keras.models.load_model("brain_tumor_classifier.h5")
@@ -120,6 +121,13 @@ def classify_tumor(image, model):
 
 # -----------------------------
 # 🎨 STREAMLIT UI
+# -----------------------------
+st.set_page_config(
+    page_title="Brain Tumor Detection",
+    page_icon="🧠",
+    layout="wide",
+)
+
 st.markdown("""
     <style>
         body {
@@ -158,12 +166,6 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-# -----------------------------
-st.set_page_config(
-    page_title="Brain Tumor Detection",
-    page_icon="🧠",
-    layout="wide",
-)
 
 st.title("🧠 Brain Tumor Detection")
 st.sidebar.header("Upload MRI Image")
@@ -188,4 +190,3 @@ if uploaded_file:
             st.info("✅ No tumor detected.")
         else:
             st.warning("⚠ Tumor detected. Consult a specialist!")
-
