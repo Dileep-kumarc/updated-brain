@@ -13,30 +13,41 @@ import gdown
 # -----------------------------
 def download_file(url, filename, expected_size_mb):
     if not os.path.exists(filename):
-        st.info(f"Downloading {filename} from Google Drive...")
+        st.info(f"Downloading {filename} from Google Drive: {url}")
         try:
-            gdown.download(url, filename, quiet=False)
+            # Download with gdown
+            output = gdown.download(url, filename, quiet=False)
+            if output is None:
+                st.error(f"Download failed for {filename}. Check the URL or permissions.")
+                raise ValueError("Download returned None")
             
-            # Verify download
+            # Verify file exists and size
+            if not os.path.exists(filename):
+                st.error(f"File {filename} was not created after download.")
+                raise FileNotFoundError("Download failed to produce a file")
+            
             file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
             st.write(f"Downloaded {filename} with size: {file_size:.2f} MB")
             
-            # Check size (allow 20% variance due to compression differences)
+            # Check size (allow 20% variance)
             if file_size < expected_size_mb * 0.8:
                 st.error(f"Downloaded {filename} is too small ({file_size:.2f} MB). Expected ~{expected_size_mb} MB.")
                 raise ValueError("File size mismatch")
             
-            # Check if it’s an HTML page
+            # Check for HTML content
             with open(filename, 'rb') as f:
                 header = f.read(10)
-                if b'<' in header:  # Broad check for any HTML-like content
-                    st.error(f"Downloaded {filename} appears to be an HTML page. First 10 bytes: {header}. Check the Google Drive link.")
+                if b'<' in header:
+                    st.error(f"Downloaded {filename} is an HTML page. First 10 bytes: {header}. Verify the Google Drive link.")
+                    os.remove(filename)  # Clean up invalid file
                     raise ValueError("Invalid file content: HTML detected")
             
             st.success(f"Successfully downloaded {filename} ({file_size:.2f} MB)")
 
         except Exception as e:
             st.error(f"Failed to download {filename}: {str(e)}")
+            if os.path.exists(filename):
+                os.remove(filename)  # Remove any partial/invalid file
             raise
 
 # 📥 Download model files at startup
