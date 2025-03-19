@@ -11,12 +11,58 @@ import requests
 
 # Step 1: Define model downloading and loading functions
 def download_file(url, filename):
-    # Extract file ID from Google Drive link and use direct download URL
-    file_id = url.split('/d/')[1].split('/')[0]
-    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    response = requests.get(download_url)
-    with open(filename, 'wb') as f:
-        f.write(response.content)
+    try:
+        # Check if URL is a valid Google Drive link
+        if '/d/' not in url:
+            st.error(f"Invalid Google Drive URL: {url}. Please provide a valid sharing link.")
+            raise ValueError("URL must contain '/d/' (Google Drive sharing link format)")
+        
+        # Extract file ID
+        file_id = url.split('/d/')[1].split('/')[0]
+        base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        
+        # Use a session for persistent cookies
+        session = requests.Session()
+        response = session.get(base_url, stream=True)
+        
+        # Handle large file confirmation token
+        token = None
+        for key, value in response.cookies.items():
+            if key.startswith('download_warning'):
+                token = value
+                break
+        
+        if token:
+            download_url = f"{base_url}&confirm={token}"
+            response = session.get(download_url, stream=True)
+        
+        # Verify the response
+        response.raise_for_status()
+        
+        # Download with progress bar
+        total_size = int(response.headers.get('content-length', 0))
+        progress_bar = st.progress(0)
+        downloaded = 0
+        
+        with open(filename, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    downloaded += len(chunk)
+                    f.write(chunk)
+                    if total_size > 0:
+                        progress_bar.progress(min(downloaded / total_size, 1.0))
+        
+        progress_bar.empty()
+        st.success(f"Downloaded {filename} successfully!")
+    except IndexError:
+        st.error(f"Could not extract file ID from URL: {url}. Ensure it’s a valid Google Drive link (e.g., https://drive.google.com/file/d/FILE_ID/view).")
+        raise
+    except requests.RequestException as e:
+        st.error(f"Download failed for {filename}: {str(e)}")
+        raise
+    except Exception as e:
+        st.error(f"An unexpected error occurred while downloading {filename}: {str(e)}")
+        raise
 
 @st.cache_resource
 def load_models():
@@ -44,7 +90,7 @@ def load_models():
         model_path = "best_mri_classifier.pth"
         if not os.path.exists(model_path):
             st.info("Downloading MRI validation model...")
-            download_file("YOUR_GOOGLE_DRIVE_LINK_FOR_BEST_MRI_CLASSIFIER_PTH", model_path)
+            download_file("https://drive.google.com/file/d/1asvDh7lSvkL7yW6rhtLAzz7BHhI9Dzwv/view?usp=sharing", model_path)
         
         model = CustomCNN()
         model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
@@ -57,7 +103,7 @@ def load_models():
     classifier_path = "brain_tumor_classifier.h5"
     if not os.path.exists(classifier_path):
         st.info("Downloading tumor classification model...")
-        download_file("YOUR_GOOGLE_DRIVE_LINK_FOR_BRAIN_TUMOR_CLASSIFIER_H5", classifier_path)
+        download_file("https://drive.google.com/file/d/1jey7rlkoK4qgIpBFiXG9RtwwzLjEYnTp/view?usp=sharing", classifier_path)
     
     classifier_model = tf.keras.models.load_model(classifier_path)
 
